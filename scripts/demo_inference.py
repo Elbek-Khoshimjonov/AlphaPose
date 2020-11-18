@@ -62,12 +62,16 @@ parser.add_argument('--eval', dest='eval', default=False, action='store_true',
                     help='save the result json as coco format, using image index(int) instead of image name(str)')
 parser.add_argument('--gpus', type=str, dest='gpus', default="0",
                     help='choose which cuda device to use by index and input comma to use multi gpus, e.g. 0,1,2,3. (input -1 for cpu only)')
-parser.add_argument('--qsize', type=int, dest='qsize', default=1024,
+parser.add_argument('--qsize', type=int, dest='qsize', default=128,
                     help='the length of result buffer, where reducing it will lower requirement of cpu memory')
 parser.add_argument('--flip', default=False, action='store_true',
                     help='enable flip testing')
 parser.add_argument('--debug', default=False, action='store_true',
                     help='print detail information')
+"""----------------------------- Clothe Color options -----------------------------"""
+parser.add_argument('--clothe_color', default=False, action='store_true',
+                    help='save result as image')
+
 """----------------------------- Video options -----------------------------"""
 parser.add_argument('--video', dest='video',
                     help='video-name', default="")

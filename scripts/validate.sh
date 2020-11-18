@@ -2,8 +2,8 @@ set -x
 
 CONFIG=$1
 CKPT=$2
-BATCH=${3:-"64"}
-GPUS=${4:-"0,1,2,3"}
+BATCH=${3:-"32"}
+GPUS=${4:-"0"}
 
 python ./scripts/validate.py \
     --cfg ${CONFIG} \

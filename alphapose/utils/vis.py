@@ -17,6 +17,48 @@ BLACK = (0, 0, 0)
 
 DEFAULT_FONT = cv2.FONT_HERSHEY_SIMPLEX
 
+# Dominant color
+from sklearn.cluster import KMeans
+from scipy.ndimage.morphology import binary_fill_holes as imfill
+
+
+def area_mask(img, polygon, neg_polygon=[]):
+    mask = np.zeros(img.shape[:2], dtype=np.uint8)
+    
+    # Positive polygon
+    if type(polygon) is list:
+        for pol in polygon:
+            mask = cv2.fillConvexPoly(mask, pol, 1)
+    else:
+        mask = cv2.fillConvexPoly(mask, polygon, 1)
+
+    if type(neg_polygon) is list:
+        for pol in neg_polygon:
+            mask = cv2.fillConvexPoly(mask, pol, 0)
+
+    else:
+        mask = cv2.fillConvexPoly(mask, neg_polygon, 0)
+
+    
+    mask = mask.astype(bool)
+    
+    out = img[imfill(mask)]
+    return out
+
+def rotate(p, theta):                  
+    c, s = np.cos(theta), np.sin(theta)
+    R = np.array([[c, -s], [s, c]])                                           
+    return np.matmul(p, R)
+
+
+def find_forearm(elbow, wrist, ratio=0.3):
+    lst = [ elbow + rotate( (wrist-elbow)*ratio, np.radians(90)),
+            wrist + rotate( (elbow-wrist)*ratio, np.radians(-90)),
+            wrist + rotate( (elbow-wrist)*ratio, np.radians(90)),
+            elbow + rotate( (wrist-elbow)*ratio, np.radians(-90))
+            ]
+    return np.asarray([ (int(p[0]), int(p[1])) for p in lst ])
+
 
 def get_color(idx):
     idx = idx * 3
@@ -147,6 +189,45 @@ def vis_frame_fast(frame, im_res, opt, format='coco'):
             cv2.rectangle(img, (int(bbox[0]), int(bbox[2])), (int(bbox[1]), int(bbox[3])), color, 2)
             if opt.tracking:
                 cv2.putText(img, str(human['idx']), (int(bbox[0]), int((bbox[2] + 26))), DEFAULT_FONT, 1, BLACK, 2)
+        # Clothe color
+        if opt.clothe_color:
+            # Shoulders
+            l_sh_x, l_sh_y = int(kp_preds[5, 0]), int(kp_preds[5, 1])
+            r_sh_x, r_sh_y = int(kp_preds[6, 0]), int(kp_preds[6, 1])
+            # Hips
+            l_h_x, l_h_y = int(kp_preds[11, 0]), int(kp_preds[11, 1])
+            r_h_x, r_h_y = int(kp_preds[12, 0]), int(kp_preds[12, 1])
+
+            # Body region
+            region = np.asarray([(l_sh_x, l_sh_y), (r_sh_x, r_sh_y), (l_h_x, l_h_y), (r_h_x, r_h_y)])
+
+            ## Wrist region
+            # Left
+            l_elbow_x, l_elbow_y = kp_preds[7, 0], kp_preds[7, 1]
+            l_wrist_x, l_wrist_y = kp_preds[9, 0], kp_preds[9, 1]
+
+            l_forearm = find_forearm(np.array([l_elbow_x, l_elbow_y]), np.array([l_wrist_x, l_wrist_y]))
+
+            # Right
+            r_elbow_x, r_elbow_y = kp_preds[8, 0], kp_preds[8, 1]
+            r_wrist_x, r_wrist_y = kp_preds[10, 0], kp_preds[10, 1]
+
+            r_forearm = find_forearm(np.array([r_elbow_x, r_elbow_y]), np.array([r_wrist_x, r_wrist_y]))
+
+
+            mask = area_mask(img, region, [l_forearm, r_forearm])
+            clt = KMeans(n_clusters=1)  # cluster number
+            clt.fit(mask)
+            color = clt.cluster_centers_[0].astype(int)
+            color = (color[0].item(), color[1].item(), color[2].item())
+
+            nose_x, nose_y = int(kp_preds[0, 0]), int(kp_preds[0, 1])
+            nose_y -= 20
+            print(nose_x, nose_y)
+
+            cv2.circle(img, (nose_x, nose_y), 20, color, -1)
+
+
         # Draw keypoints
         for n in range(kp_scores.shape[0]):
             if kp_scores[n] <= 0.4:

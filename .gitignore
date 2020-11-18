@@ -114,4 +114,7 @@ data/
 tmp/
 exp/json
 tmp_*/
-example/res/
+examples
+videos
+image
+mmDetection
