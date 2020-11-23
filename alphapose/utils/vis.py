@@ -186,7 +186,7 @@ def vis_frame_fast(frame, im_res, opt, format='coco'):
                     keypoints.append(float(kp_scores[n]))
                 bbox = get_box(keypoints, height, width)
             
-            cv2.rectangle(img, (int(bbox[0]), int(bbox[2])), (int(bbox[1]), int(bbox[3])), color, 2)
+            cv2.rectangle(img, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), color, 2)
             if opt.tracking:
                 cv2.putText(img, str(human['idx']), (int(bbox[0]), int((bbox[2] + 26))), DEFAULT_FONT, 1, BLACK, 2)
         # Clothe color

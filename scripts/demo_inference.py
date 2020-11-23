@@ -228,6 +228,7 @@ if __name__ == "__main__":
             start_time = getTime()
             with torch.no_grad():
                 (inps, orig_img, im_name, boxes, scores, ids, cropped_boxes) = det_loader.read()
+                # print(boxes, cropped_boxes)
                 if orig_img is None:
                     break
                 if boxes is None or boxes.nelement() == 0:

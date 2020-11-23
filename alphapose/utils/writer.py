@@ -113,7 +113,6 @@ class DataWriter():
                 if not self.opt.pose_track:
                     boxes, scores, ids, preds_img, preds_scores, pick_ids = \
                         pose_nms(boxes, scores, ids, preds_img, preds_scores, self.opt.min_box_area)
-
                 _result = []
                 for k in range(len(scores)):
                     _result.append(
