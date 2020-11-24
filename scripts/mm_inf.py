@@ -20,6 +20,12 @@ from mmdet.apis import init_detector, inference_detector
 config_file = 'mmDetection/gfl_x101_611.py'
 checkpoint = 'mmDetection/weights.pth'
 
+# Constants
+BBOX_COLOR = (255, 0, 0)
+TEXT_COLOR = (255, 0, 0)
+FONT_SCALE = 0.5
+
+
 
 parser = argparse.ArgumentParser(description='AlphaPose Demo')
 parser.add_argument('--cfg', type=str, default='configs/coco/resnet/256x192_res50_lr1e-3_1x.yaml',
@@ -82,25 +88,49 @@ pose_model.eval()
 img = cv2.imread(args.image)
 
 # Detector
-det = inference_detector(model, img)[0]
+det_result = inference_detector(model, img)
 
+if isinstance(det_result, tuple):
+    bbox_result, segm_result = det_result
+else:
+    bbox_result, segm_result = det_result, None
+
+det = np.vstack(bbox_result)
+labels = [
+    np.full(bbox.shape[0], i, dtype=np.int32)
+    for i, bbox in enumerate(bbox_result)
+]
+labels = np.concatenate(labels)[:len(det)]
+
+# For human objects
 bboxes = []
 cropped_boxes = []
 inps = []
 
+# Other objects
+other_objects = []
+
 # Preprocess
-for bbox in det:
+for bbox, label in zip(det, labels):
     acc = bbox[4]
     
     if acc>=args.det_thresh:
 
         bbox = bbox[:4].astype(int)
-        x1, y1, x2, y2 = bbox    
-        inp, cropped_box = transformation.test_transform(img[y1:y2, x1:x2], torch.Tensor([0, 0, x2-x1, y2-y1]))
 
-        inps.append(inp.unsqueeze(0))
-        bboxes.append(bbox)
-        cropped_boxes.append(cropped_box)
+        # Person type & prepare for pose estimation
+        if model.CLASSES[label]=='person':
+            x1, y1, x2, y2 = bbox    
+            inp, cropped_box = transformation.test_transform(img[y1:y2, x1:x2], torch.Tensor([0, 0, x2-x1, y2-y1]))
+
+            inps.append(inp.unsqueeze(0))
+            bboxes.append(bbox)
+            cropped_boxes.append(cropped_box)
+        
+        # Other objects, just take label and bbox
+        else:
+            other_objects.append( (label, bbox) )
+
 
 # Run pose model
 inps = torch.cat(inps).to(args.device)
@@ -131,10 +161,26 @@ for bbox, pose_coord, pose_score in zip(bboxes, pose_coords, pose_scores):
     # Pose coords
     result.append({"keypoints": pose_coord, "kp_score": pose_score, "box": bbox})
 
-    # for point in pose_coord:
-    #     img = cv2.circle(img, tuple(point.astype(int)), 3, (255, 0, 0), -1)
-
+# Draw human results
 img = vis_frame_fast(img, {"result": result}, args)
+
+
+if args.showbox:
+    # Draw other objects with name:
+    for label, bbox in other_objects:
+        
+        label_text = model.CLASSES[label]
+        bbox = bbox.astype(int)
+
+        # Bbox
+        left_top = (bbox[0], bbox[1])
+        right_bottom = (bbox[2], bbox[3])
+        cv2.rectangle(img, left_top, right_bottom, BBBOX_COLOR 3)
+        
+        # Label name
+        cv2.putText(img, label_text, (bbox[0], bbox[1] - 2),
+                    cv2.FONT_HERSHEY_COMPLEX, FONT_SCALE, TEXT_COLOR)
+
 
 
 cv2.imwrite(args.output, img)
