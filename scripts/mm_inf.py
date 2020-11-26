@@ -32,8 +32,10 @@ parser.add_argument('--cfg', type=str, default='configs/coco/resnet/256x192_res5
                     help='experiment configure file name')
 parser.add_argument('--checkpoint', type=str, default='pretrained_models/fast_res50_256x192.pth',
                     help='checkpoint file name')
-parser.add_argument('--image', type=str, required=True,
+parser.add_argument('--image', type=str, required=False,
                     help='input image')
+parser.add_argument('--video', type=str, required=False,
+                    help='input video')
 parser.add_argument('--showbox', default=True, action='store_true',
                     help='visualize human bbox')
 """----------------------------- Clothe Color options -----------------------------"""
@@ -42,11 +44,24 @@ parser.add_argument('--clothe_color', default=False, action='store_true',
 parser.add_argument('--gpus', type=str, dest='gpus', default="0",
                     help='choose which cuda device to use by index and input comma to use multi gpus, e.g. 0,1,2,3. (input -1 for cpu only)')
 parser.add_argument('--output', type=str, required=True,
-                    help='output image')
+                    help='output file')
 parser.add_argument('--det_thresh', type=float, default=0.5,
                     help='threshold value for detection')
 
 args = parser.parse_args()
+
+# Check for image or video input
+
+if (args.image is None) == (args.video is None):
+    print("Please select either[JUST ONE] --image or --video")
+    exit(0)
+
+if args.image is not None:
+    src_type="image"
+else:
+    src_type="video"
+
+
 cfg = update_config(args.cfg)
 
 # Device configuration
@@ -84,108 +99,191 @@ pose_model.load_state_dict(torch.load(args.checkpoint, map_location=args.device)
 pose_model.to(args.device)
 pose_model.eval()
 
-# Load Image
-img = cv2.imread(args.image)
 
-# Detector
-det_result = inference_detector(model, img)
+def recognize_video_ext(ext=''):
+    if ext == 'mp4':
+        return cv2.VideoWriter_fourcc(*'mp4v'), '.' + ext
+    elif ext == 'avi':
+        return cv2.VideoWriter_fourcc(*'XVID'), '.' + ext
+    elif ext == 'mov':
+        return cv2.VideoWriter_fourcc(*'XVID'), '.' + ext
+    else:
+        print("Unknow video format {}, will use .mp4 instead of it".format(ext))
+        return cv2.VideoWriter_fourcc(*'mp4v'), '.mp4'
 
-if isinstance(det_result, tuple):
-    bbox_result, segm_result = det_result
-else:
-    bbox_result, segm_result = det_result, None
 
-det = np.vstack(bbox_result)
-labels = [
-    np.full(bbox.shape[0], i, dtype=np.int32)
-    for i, bbox in enumerate(bbox_result)
-]
-labels = np.concatenate(labels)[:len(det)]
+#region Process one sample
+def process(img):
 
-# For human objects
-bboxes = []
-cropped_boxes = []
-inps = []
+    # Detector
+    det_result = inference_detector(model, img)
 
-# Other objects
-other_objects = []
+    if isinstance(det_result, tuple):
+        bbox_result, segm_result = det_result
+    else:
+        bbox_result, segm_result = det_result, None
 
-# Preprocess
-for bbox, label in zip(det, labels):
-    acc = bbox[4]
+    det = np.vstack(bbox_result)
+    labels = [
+        np.full(bbox.shape[0], i, dtype=np.int32)
+        for i, bbox in enumerate(bbox_result)
+    ]
+    labels = np.concatenate(labels)[:len(det)]
+
+    # For human objects
+    bboxes = []
+    cropped_boxes = []
+    inps = []
+
+    # Other objects
+    other_objects = []
+
+    # Preprocess
+    for bbox, label in zip(det, labels):
+        acc = bbox[4]
+        
+        if acc>=args.det_thresh:
+
+            bbox = bbox[:4].astype(int)
+
+            # Person type & prepare for pose estimation
+            if model.CLASSES[label]=='person':
+                x1, y1, x2, y2 = bbox    
+                inp, cropped_box = transformation.test_transform(img[y1:y2, x1:x2], torch.Tensor([0, 0, x2-x1, y2-y1]))
+
+                inps.append(inp.unsqueeze(0))
+                bboxes.append(bbox)
+                cropped_boxes.append(cropped_box)
+            
+            # Other objects, just take label and bbox
+            else:
+                other_objects.append( (label, bbox) )
+
+    poses = []
+
+    if len(inps)>0:
+        # Run pose model
+        inps = torch.cat(inps).to(args.device)
+        hm_datas = pose_model(inps).cpu()
+        del inps
+
+        # Convert heatmap to coord and score
+        pose_coords = []
+        pose_scores = []
+
+        for (hm_data, cropped_box, bbox) in zip(hm_datas, cropped_boxes, bboxes):
+            pose_coord, pose_score = heatmap_to_coord(hm_data[EVAL_JOINTS], cropped_box, hm_shape=cfg.DATA_PRESET.HEATMAP_SIZE, norm_type=norm_type)
+
+            pose_coords.append(torch.from_numpy(pose_coord + bbox[:2]))
+            pose_scores.append(torch.from_numpy(pose_score))
+
+
+        # Draw bboxs and pose coordinates
+        for bbox, pose_coord, pose_score in zip(bboxes, pose_coords, pose_scores):
+
+            # # Bbox
+            # left_top = (bbox[0], bbox[1])
+            # right_bottom = (bbox[2], bbox[3])
+            # img = cv2.rectangle(img, left_top, right_bottom, (0, 0, 255), 3)
+
+            # Pose coords
+            poses.append({"keypoints": pose_coord, "kp_score": pose_score, "box": bbox})
+        
+    return poses, other_objects
     
-    if acc>=args.det_thresh:
+#endregion
 
-        bbox = bbox[:4].astype(int)
+#region Draw results
+def draw_results(img, poses, other_objects):
+    # Draw human results
+    img = vis_frame_fast(img, {"result": poses}, args)
 
-        # Person type & prepare for pose estimation
-        if model.CLASSES[label]=='person':
-            x1, y1, x2, y2 = bbox    
-            inp, cropped_box = transformation.test_transform(img[y1:y2, x1:x2], torch.Tensor([0, 0, x2-x1, y2-y1]))
 
-            inps.append(inp.unsqueeze(0))
-            bboxes.append(bbox)
-            cropped_boxes.append(cropped_box)
+    if args.showbox:
+        # Draw other objects with name:
+        for label, bbox in other_objects:
+            
+            label_text = model.CLASSES[label]
+            bbox = bbox.astype(int)
+
+            # Bbox
+            left_top = (bbox[0], bbox[1])
+            right_bottom = (bbox[2], bbox[3])
+            cv2.rectangle(img, left_top, right_bottom, BBOX_COLOR, 3)
+            
+            # Label name
+            cv2.putText(img, label_text, (bbox[0], bbox[1] - 2),
+                        cv2.FONT_HERSHEY_COMPLEX, FONT_SCALE, TEXT_COLOR)
+
+    return img
+#endregion
+
+
+if src_type=="image":    
+    #region Process image
+    # Load Image
+    img = cv2.imread(args.image)
+
+    # Process single image
+    poses, other_objects = process(img)
+
+    # Draw Results
+    img = draw_results(img, poses, other_objects)
+
+
+    cv2.imwrite(args.output, img)
+    #endregion
+
+elif src_type=="video":
+    #region Process video
+    cap = cv2.VideoCapture(args.video)
+
+    # Test for validness
+    if not cap.isOpened():
+        print("Problem with %s"%args.video)
+        exit(0)
+    
+    # Video info
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))  # float
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) # float
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    # Identify fourcc
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    print("Resolution: (%d, %d), fps: %d, fourcc: %d, frame_count: %d"%(w, h, fps, fourcc, frame_count))
+    
+    # Writer with same fps, fourcc and resolution
+    writer = cv2.VideoWriter(*[args.output, fourcc, fps, (w, h)])
+    if not writer.isOpened():
+        print("Try to use other video encoders...")
+        ext = args.output.split('.')[-1]
+        fourcc, _ext = recognize_video_ext(ext)
+        args.output = args.output[:-4] + _ext
+        writer = cv2.VideoWriter(*[args.output, fourcc, fps, (w, h)])
+    assert writer.isOpened(), 'Cannot open video for writing'
+    
+    # Frame by frame
+    for i in tqdm(range(frame_count), "Processing %s"%args.video):
         
-        # Other objects, just take label and bbox
-        else:
-            other_objects.append( (label, bbox) )
+        ret, img = cap.read()
+        if not ret:
+            break
 
+        poses, other_objects = process(img)
+        img = draw_results(img, poses, other_objects)
 
-# Run pose model
-inps = torch.cat(inps).to(args.device)
-hm_datas = pose_model(inps).cpu()
-del inps
+        writer.write(img)
 
-# Convert heatmap to coord and score
-pose_coords = []
-pose_scores = []
-
-for (hm_data, cropped_box, bbox) in zip(hm_datas, cropped_boxes, bboxes):
-    pose_coord, pose_score = heatmap_to_coord(hm_data[EVAL_JOINTS], cropped_box, hm_shape=cfg.DATA_PRESET.HEATMAP_SIZE, norm_type=norm_type)
-
-    pose_coords.append(torch.from_numpy(pose_coord + bbox[:2]))
-    pose_scores.append(torch.from_numpy(pose_score))
-
-
-result = []
-
-# Draw bboxs and pose coordinates
-for bbox, pose_coord, pose_score in zip(bboxes, pose_coords, pose_scores):
-
-    # # Bbox
-    # left_top = (bbox[0], bbox[1])
-    # right_bottom = (bbox[2], bbox[3])
-    # img = cv2.rectangle(img, left_top, right_bottom, (0, 0, 255), 3)
-
-    # Pose coords
-    result.append({"keypoints": pose_coord, "kp_score": pose_score, "box": bbox})
-
-# Draw human results
-img = vis_frame_fast(img, {"result": result}, args)
-
-
-if args.showbox:
-    # Draw other objects with name:
-    for label, bbox in other_objects:
         
-        label_text = model.CLASSES[label]
-        bbox = bbox.astype(int)
+    
+    # Close reader
+    cap.release()
 
-        # Bbox
-        left_top = (bbox[0], bbox[1])
-        right_bottom = (bbox[2], bbox[3])
-        cv2.rectangle(img, left_top, right_bottom, BBBOX_COLOR 3)
-        
-        # Label name
-        cv2.putText(img, label_text, (bbox[0], bbox[1] - 2),
-                    cv2.FONT_HERSHEY_COMPLEX, FONT_SCALE, TEXT_COLOR)
+    # Close writer
+    writer.release()
 
-
-
-cv2.imwrite(args.output, img)
-
-
+    #endregion    
 
 
 
