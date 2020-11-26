@@ -36,6 +36,8 @@ parser.add_argument('--image', type=str, required=False,
                     help='input image')
 parser.add_argument('--video', type=str, required=False,
                     help='input video')
+parser.add_argument("--stream", type=str, required=False,
+                    help="video stream (CCTV)")
 parser.add_argument('--showbox', default=True, action='store_true',
                     help='visualize human bbox')
 """----------------------------- Clothe Color options -----------------------------"""
@@ -43,7 +45,7 @@ parser.add_argument('--clothe_color', default=False, action='store_true',
                     help='save result as image')
 parser.add_argument('--gpus', type=str, dest='gpus', default="0",
                     help='choose which cuda device to use by index and input comma to use multi gpus, e.g. 0,1,2,3. (input -1 for cpu only)')
-parser.add_argument('--output', type=str, required=True,
+parser.add_argument('--output', type=str, required=False,
                     help='output file')
 parser.add_argument('--det_thresh', type=float, default=0.5,
                     help='threshold value for detection')
@@ -52,14 +54,21 @@ args = parser.parse_args()
 
 # Check for image or video input
 
-if (args.image is None) == (args.video is None):
-    print("Please select either[JUST ONE] --image or --video")
+if int(args.image is not None) + int(args.video is not None) + int(args.stream is not None)!=1:
+    print("Please select either[JUST ONE] --image or --video or --stream")
     exit(0)
 
 if args.image is not None:
     src_type="image"
-else:
+elif args.video is not None:
     src_type="video"
+else:
+    src_type="stream"
+
+
+if src_type=="image" or src_type=="video" and args.output is None:
+    print("--output is required")
+    exit(0)
 
 
 cfg = update_config(args.cfg)
@@ -285,5 +294,24 @@ elif src_type=="video":
 
     #endregion    
 
+elif src_type=="stream":
 
+    #region Process video
+    cap = cv2.VideoCapture(args.stream)
 
+    # Test for validness
+    if not cap.isOpened():
+        print("Problem with %s"%args.stream)
+        exit(0)
+    
+    while True:
+        ret, img = cap.read()
+        
+        if ret is None:
+            break
+            
+        poses, other_objects = process(img)
+        img = draw_results(img, poses, other_objects)
+
+        cv2.imshow("Stream", img)
+        cv2.waitKey(1)
