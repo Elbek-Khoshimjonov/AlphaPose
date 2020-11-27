@@ -16,6 +16,7 @@ from alphapose.utils.vis import vis_frame_fast
 
 
 from mmdet.apis import init_detector, inference_detector
+from mmcv.runner import wrap_fp16_model
 
 config_file = 'mmDetection/gfl_x101_611.py'
 checkpoint = 'mmDetection/weights.pth'
@@ -49,7 +50,6 @@ parser.add_argument('--output', type=str, required=False,
                     help='output file')
 parser.add_argument('--det_thresh', type=float, default=0.5,
                     help='threshold value for detection')
-
 args = parser.parse_args()
 
 # Check for image or video input
@@ -66,7 +66,7 @@ else:
     src_type="stream"
 
 
-if src_type=="image" or src_type=="video" and args.output is None:
+if (src_type=="image" or src_type=="video") and args.output is None:
     print("--output is required")
     exit(0)
 
@@ -96,7 +96,8 @@ heatmap_to_coord = get_func_heatmap_to_coord(cfg)
 
 
 # Load Detector Model
-model = init_detector(config_file, checkpoint=checkpoint, device=args.device)
+det_model = init_detector(config_file, checkpoint=checkpoint, device=args.device)
+
 
 
 # Load pose model
@@ -125,7 +126,7 @@ def recognize_video_ext(ext=''):
 def process(img):
 
     # Detector
-    det_result = inference_detector(model, img)
+    det_result = inference_detector(det_model, img)
 
     if isinstance(det_result, tuple):
         bbox_result, segm_result = det_result
@@ -156,7 +157,7 @@ def process(img):
             bbox = bbox[:4].astype(int)
 
             # Person type & prepare for pose estimation
-            if model.CLASSES[label]=='person':
+            if det_model.CLASSES[label]=='person':
                 x1, y1, x2, y2 = bbox    
                 inp, cropped_box = transformation.test_transform(img[y1:y2, x1:x2], torch.Tensor([0, 0, x2-x1, y2-y1]))
 
@@ -212,7 +213,7 @@ def draw_results(img, poses, other_objects):
         # Draw other objects with name:
         for label, bbox in other_objects:
             
-            label_text = model.CLASSES[label]
+            label_text = det_model.CLASSES[label]
             bbox = bbox.astype(int)
 
             # Bbox

@@ -200,7 +200,7 @@ test_cfg = dict(
     nms_pre=1000,
     min_bbox_size=0,
     score_thr=0.05,
-    nms=dict(type='nms', iou_threshold=0.6),
+    nms=dict(type='nms', iou_threshold=0.4),
     max_per_img=100)
 work_dir = 'work_dirs/gfl_x101_d_1019'
 gpu_ids = range(0, 1)
