@@ -165,6 +165,7 @@ def vis_frame_fast(frame, im_res, opt, format='coco'):
         part_line = {}
         kp_preds = human['keypoints']
         kp_scores = human['kp_score']
+        
         if kp_num == 17:
             kp_preds = torch.cat((kp_preds, torch.unsqueeze((kp_preds[5, :] + kp_preds[6, :]) / 2, 0)))
             kp_scores = torch.cat((kp_scores, torch.unsqueeze((kp_scores[5, :] + kp_scores[6, :]) / 2, 0)))
@@ -191,41 +192,13 @@ def vis_frame_fast(frame, im_res, opt, format='coco'):
                 cv2.putText(img, str(human['idx']), (int(bbox[0]), int((bbox[2] + 26))), DEFAULT_FONT, 1, BLACK, 2)
         # Clothe color
         if opt.clothe_color:
-            # Shoulders
-            l_sh_x, l_sh_y = int(kp_preds[5, 0]), int(kp_preds[5, 1])
-            r_sh_x, r_sh_y = int(kp_preds[6, 0]), int(kp_preds[6, 1])
-            # Hips
-            l_h_x, l_h_y = int(kp_preds[11, 0]), int(kp_preds[11, 1])
-            r_h_x, r_h_y = int(kp_preds[12, 0]), int(kp_preds[12, 1])
 
-            # Body region
-            region = np.asarray([(l_sh_x, l_sh_y), (r_sh_x, r_sh_y), (l_h_x, l_h_y), (r_h_x, r_h_y)])
-
-            ## Wrist region
-            # Left
-            l_elbow_x, l_elbow_y = kp_preds[7, 0], kp_preds[7, 1]
-            l_wrist_x, l_wrist_y = kp_preds[9, 0], kp_preds[9, 1]
-
-            l_forearm = find_forearm(np.array([l_elbow_x, l_elbow_y]), np.array([l_wrist_x, l_wrist_y]))
-
-            # Right
-            r_elbow_x, r_elbow_y = kp_preds[8, 0], kp_preds[8, 1]
-            r_wrist_x, r_wrist_y = kp_preds[10, 0], kp_preds[10, 1]
-
-            r_forearm = find_forearm(np.array([r_elbow_x, r_elbow_y]), np.array([r_wrist_x, r_wrist_y]))
-
-
-            mask = area_mask(img, region, [l_forearm, r_forearm])
-            clt = KMeans(n_clusters=1)  # cluster number
-            clt.fit(mask)
-            color = clt.cluster_centers_[0].astype(int)
-            color = (color[0].item(), color[1].item(), color[2].item())
-
+            clothe_color = human['clothe_color']
             nose_x, nose_y = int(kp_preds[0, 0]), int(kp_preds[0, 1])
             nose_y -= 20
-            print(nose_x, nose_y)
+            # print(nose_x, nose_y)
 
-            cv2.circle(img, (nose_x, nose_y), 20, color, -1)
+            cv2.circle(img, (nose_x, nose_y), 20, clothe_color, -1)
 
 
         # Draw keypoints
