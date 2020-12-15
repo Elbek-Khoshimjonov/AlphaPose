@@ -92,7 +92,9 @@ def find_clothe_color(img, kp_preds):
 
 
     mask = area_mask(img, region, [l_forearm, r_forearm])
-    clt = KMeans(n_clusters=1)  # cluster number
+    if len(mask)==0:
+        return (-1, -1, -1)
+    clt = KMeans(n_clusters=1)  # cluster number    
     clt.fit(mask)
     color = clt.cluster_centers_[0].astype(int)
     color = (color[0].item(), color[1].item(), color[2].item())
@@ -171,21 +173,32 @@ class Model:
 
     #region Process one sample
     def process(self,img):
-
         # Detector
-        det_result = inference_detector(self.det_model, img)
+        det_result = inference_detector(self.det_model, img) # xmin, ymin, xmax, ymax, percent
 
         if isinstance(det_result, tuple):
             bbox_result, segm_result = det_result
         else:
             bbox_result, segm_result = det_result, None
-
+        
         det = np.vstack(bbox_result)
         labels = [
             np.full(bbox.shape[0], i, dtype=np.int32)
             for i, bbox in enumerate(bbox_result)
         ]
+        
         labels = np.concatenate(labels)[:len(det)]
+        
+        # minjae
+        det2 = det
+        labels2 = labels
+        scores = det2[:, -1]
+        inds = scores > 0.3
+        det2 = det2[inds, :]
+        det2[:,2:4] -= det2[:,0:2]
+        labels2 = labels2[inds]
+        det2 = det2.tolist()
+        labels2 = labels2.tolist() # image 한 장에 있는 instance 각각의 labels와 bboxes
 
         # For human objects
         bboxes = []
@@ -245,9 +258,9 @@ class Model:
 
                 # Pose coords
                 poses.append({"keypoints": pose_coord, "kp_score": pose_score, "box": bbox, "clothe_color": find_clothe_color(img, pose_coord)})
-                
-            
-        return poses, other_objects
+        # labels2, det2, 
+        return poses, labels2, det2, other_objects
+        # return poses, other_objects
         
     #endregion
 
