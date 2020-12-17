@@ -58,7 +58,13 @@ class VideoScreenshot(object):
         #             exit(1)
         # Thread(target=show_frame_thread, args=()).start
 
-def TCPIP_Client(labels=0, bboxes=[0,0,0,0,0], color=50):
+class ModelInference(object):
+    def __init__(self, model, img, poses, object):
+        self.img = model.draw_results(img, poses, object)
+        cv2.imshow("Stream", self.img)
+        cv2.waitKey(1)
+
+def TCPIP_Client(labels=0, bboxes=[0,0,0,0,0], color=50, color_r = 0, color_g = 0, color_b = 0):
     data_IP = socket.gethostbyname(socket.gethostname() + '.local')
     data_time = str(datetime.datetime.now())  # 시간 문자열은 예제와 같은 (yyyy-MM-dd HH:mm:ss.ffffff) 포맷으로 해주시면 됩니다.
     data_objNum = len(labels) # 리스트 최대 길이는 40입니다. random.randrange(1, 41)
@@ -69,16 +75,15 @@ def TCPIP_Client(labels=0, bboxes=[0,0,0,0,0], color=50):
     while len(data_IP) < 15 :
         data_IP += ' '
     IF_SC400_IP = bytes(data_IP, encoding='UTF-16')
-    while len(data_time) < 28 :
-        data_time += ' '
     IF_SC400_time = bytes(data_time, encoding='UTF-16')
     IF_SC400_objNum = struct.pack('b', data_objNum) # 0 - 40
 
     sendBuffer = IF_SC400_header + IF_SC400_IP + IF_SC400_time + IF_SC400_objNum
 
     for i in range(data_objNum) :
-        import pdb; pdb.set_trace()
         data_objType = labels[i] # 0=사람, 1=차량, 2=트럭
+        data_XAxis = random.uniform(1, 10) # 위치추정
+        data_ZAxis = random.uniform(1, 10) # 위치추정
         ObjX1 = int(bboxes[i][0])
         ObjY1 = int(bboxes[i][1])
         ObjX2 = int(bboxes[i][2])
@@ -86,30 +91,44 @@ def TCPIP_Client(labels=0, bboxes=[0,0,0,0,0], color=50):
         data_percent = round(bboxes[i][4],2)
         data_action = random.randrange(0, 5) # 0=정상상태, 1=쓰러짐, 2=월담, 3=싸움, 4=밀수
         data_color = color # 0=빨강, 1=주황, 2=노랑, 3=연두, 4=초록, 5=청록, 6=파랑, 7=남색, 8=보라, 9=자주, 10=분홍, 11=갈색, 12=하양, 13=회색, 14=검정
+        data_red = color_r
+        data_green = color_g
+        data_blue = color_b
+        
+        log = str(i) + ' : ' + str(data_objType) + ' ' + str(data_XAxis) + ' ' + str(data_ZAxis) + ' '
+        log += str(ObjX1) + ' ' + str(ObjY1) + ' ' + str(ObjX2) + ' ' + str(ObjY2) + ' ' + str(data_percent) + ' '
+        log += str(data_action) + ' ' + str(data_color) + ' ' + str(data_red) + ' ' + str(data_green) + ' ' + str(data_blue)
+        print(log)
 
-        print(str(data_objType) + ' ' + str(ObjX1) + ' ' + str(ObjY1) + ' ' + str(ObjX2) + ' ' + str(ObjY2) + ' ' + str(data_percent) + ' ' + str(data_action) + ' ' + str(data_color))
 
         IF_SC400_objType = struct.pack('b', data_objType)
+        IF_SC400_XAxis = struct.pack('f', data_XAxis)
+        IF_SC400_ZAxis = struct.pack('f', data_ZAxis)
         IF_SC400_objX1 = struct.pack('i', ObjX1)
         IF_SC400_objY1 = struct.pack('i', ObjY1)
         IF_SC400_objX2 = struct.pack('i', ObjX2)
         IF_SC400_objY2 = struct.pack('i', ObjY2)
         IF_SC400_percent = struct.pack('f', data_percent)
-        IF_SC400_action = struct.pack('b', data_action)
-        IF_SC400_color = struct.pack('b', data_color)
+        IF_SC400_action = struct.pack('B', data_action)
+        IF_SC400_color = struct.pack('B', data_color)
+        IF_SC400_red = struct.pack('B', data_red)
+        IF_SC400_green = struct.pack('B', data_green)
+        IF_SC400_blue = struct.pack('B', data_blue)
 
-        sendBuffer = sendBuffer + IF_SC400_objType + IF_SC400_objX1 + IF_SC400_objY1 + IF_SC400_objX2 + IF_SC400_objY2 + IF_SC400_percent + IF_SC400_action + IF_SC400_color
-    
-    client_socket.send(sendBuffer)
+        sendBuffer += IF_SC400_objType + IF_SC400_XAxis + IF_SC400_ZAxis
+        sendBuffer += IF_SC400_objX1 + IF_SC400_objY1 + IF_SC400_objX2 + IF_SC400_objY2 + IF_SC400_percent
+        sendBuffer += IF_SC400_action + IF_SC400_color + IF_SC400_red + IF_SC400_green + IF_SC400_blue
 
-# def handleRelease(key):
-#     try:
-#         k = key.char
-#     except:
-#         k = key.name
+    # client_socket.send(sendBuffer)
 
-#     if k in 's':
-#         client_socket.close() # socket disconnect
+def handleRelease(key):
+    try:
+        k = key.char
+    except:
+        k = key.name
+
+    if k in 's':
+        client_socket.close() # socket disconnect
 
 def color_conclusion(BGR):
     # change from BGR to RGB
@@ -154,7 +173,7 @@ def color_conclusion(BGR):
     color_name = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
     color = np.array([Light_red, red, Dark_red, Light_yr, yr, Dark_yr, Light_yellow, yellow, Dark_yellow, yg, Light_green, green, Dark_green, bg, Light_blue, blue, Dark_blue, pb, Dark_pb, Light_purple, purple, Dark_purple, rp, Light_pink, pink, Dark_pink, Light_brown, brown, Dark_brown, white, gray, black])
     distant = np.sum((color-rgb)**2,axis=1)**(1/2)
-    return color_name[np.argmin(distant)]
+    return color_name[np.argmin(distant)], rgb[0], rgb[1], rgb[2]
 
 def main():
     parser = argparse.ArgumentParser(description='AlphaPose Demo')
@@ -181,17 +200,17 @@ def main():
                         help='threshold value for detection')
     args = parser.parse_args()
 
-    # socket connection
-    HOST = '166.104.14.109' # Server IP
-    # HOST = 'devcoretec.iptime.org' # 철기연 Server IP
-    # HOST = '192.168.0.21' # 철기연 Server IP
-    PORT = 4211
+    # # socket connection
+    # HOST = '166.104.14.109' # Server IP
+    # # HOST = 'devcoretec.iptime.org' # 철기연 Server IP
+    # # HOST = '192.168.0.21' # 철기연 Server IP
+    # PORT = 4211
 
-    print("start commu")
-    global client_socket
-    client_socket = socket.socket(socket.AF_INET,socket.SOCK_STREAM) 
-    client_socket.connect((HOST, PORT))
-    print("succ")
+    # print("start commu")
+    # global client_socket
+    # client_socket = socket.socket(socket.AF_INET,socket.SOCK_STREAM) 
+    # client_socket.connect((HOST, PORT))
+    # print("succ")
 
     # Check for image or video input
 
@@ -208,31 +227,21 @@ def main():
 
    
     
-    # lis = keyboard.Listener(on_release=handleRelease) 
-    # lis.start() # start keyboard listener
+    lis = keyboard.Listener(on_release=handleRelease) 
+    lis.start() # start keyboard listener
     print("start")
     while True:
         try:
-            st = time.time()
-            # cap.show_frame()
             img = s1.pop()
-            # import pdb; pdb.set_trace()
-            #if bool(img) == True:
             poses, labels, dets, other_objects = model.process(img)
 
             # show stream inference
-            img = model.draw_results(img, poses, other_objects)
-            cv2.imshow("Stream", img)
-            cv2.waitKey(1)
-            dt = time.time() - st
-            print(dt)
-            time.sleep(1)
+            ModelInference(model, img, poses, other_objects)
+            
             if bool(poses):                                               
-                print("color send")
                 BGR = poses[0]["clothe_color"]
-                color = color_conclusion(BGR)
-                print(f'color is {str(color)}')
-                TCPIP_Client(labels=labels, bboxes=dets, color=color)
+                colorNum, color_r, color_g, color_b = color_conclusion(BGR)
+                TCPIP_Client(labels = labels, bboxes = dets, color = colorNum, color_r = color_r, color_g = color_g, color_b = color_b)
                 
             else:
                 TCPIP_Client(labels=labels, bboxes=dets)
