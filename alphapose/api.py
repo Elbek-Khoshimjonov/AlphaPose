@@ -93,7 +93,14 @@ def find_clothe_color(img, kp_preds):
 
     mask = area_mask(img, region, [l_forearm, r_forearm])
     if len(mask)==0:
-        return (-1, -1, -1)
+        # Find center of shoulders and hips
+        x = int((l_sh_x + r_sh_x + l_h_x + r_sh_x) / 4)
+        x = min(max(0, x), img.shape[1]-1)
+        y = int((l_sh_y + r_sh_y + l_h_y+ r_sh_y) / 4)
+        y = min(max(0 ,y), img.shape[0]-1)
+        color = img[y][x]
+        return (color[0].item(), color[1].item(), color[2].item())
+
     clt = KMeans(n_clusters=1)  # cluster number    
     clt.fit(mask)
     color = clt.cluster_centers_[0].astype(int)
@@ -175,30 +182,45 @@ class Model:
     def process(self,img):
         # Detector
         det_result = inference_detector(self.det_model, img) # xmin, ymin, xmax, ymax, percent
-
         if isinstance(det_result, tuple):
             bbox_result, segm_result = det_result
         else:
             bbox_result, segm_result = det_result, None
-        
+        for i in range(len(bbox_result)):
+            bbox_result
         det = np.vstack(bbox_result)
         labels = [
             np.full(bbox.shape[0], i, dtype=np.int32)
             for i, bbox in enumerate(bbox_result)
         ]
-        
         labels = np.concatenate(labels)[:len(det)]
         
-        # minjae
+        # sorting bboxes and labels
+        arr_concat = np.empty((1,6))
+        for i in range(len(det)):
+            label = np.array([labels[i]])
+            arr = np.append([det[i]], label)
+            arr = np.array([arr])
+            arr_concat = np.append(arr_concat, arr, axis=0)
+        arr_concat = np.delete(arr_concat, [0,0,0,0,0,0], axis=0)
+        arr_concat = arr_concat[np.lexsort(([arr_concat[:, i] for i in range(arr_concat.shape[1]-1, -1, -1)]))]
+        # arr_concat = arr_concat[np.argsort(arr_concat[:, 0])]
+        arr_concat = np.split(arr_concat, (0,5), axis=1)
+        det = np.array(arr_concat[1], dtype=np.float32)
+        labels = np.ravel(arr_concat[2], order='C')
+        labels = np.array(labels, dtype=np.int32)
+        
+        # split bboxes and labels
         det2 = det
         labels2 = labels
         scores = det2[:, -1]
         inds = scores > 0.3
         det2 = det2[inds, :]
-        det2[:,2:4] -= det2[:,0:2]
         labels2 = labels2[inds]
         det2 = det2.tolist()
         labels2 = labels2.tolist() # image 한 장에 있는 instance 각각의 labels와 bboxes
+
+        
 
         # For human objects
         bboxes = []
