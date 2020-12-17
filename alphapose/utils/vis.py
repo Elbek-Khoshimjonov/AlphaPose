@@ -197,7 +197,7 @@ def vis_frame_fast(frame, im_res, opt, format='coco'):
             nose_x, nose_y = int(kp_preds[0, 0]), int(kp_preds[0, 1])
             nose_y -= 20
             # print(nose_x, nose_y)
-
+            print(clothe_color)
             cv2.circle(img, (nose_x, nose_y), 20, clothe_color, -1)
 
 
